@@ -6,7 +6,7 @@ app = FastAPI()
 
 @app.get("/")
 def read_root():
-    return {"Hello": "World"}
+    return {"message": "Welcome to the PDF Generator API!"}
 
 @app.get("/make-pdf")
 def make_pdf():
@@ -15,7 +15,7 @@ def make_pdf():
     
     # Create a PDF canvas
     c = canvas.Canvas(buf)
-    c.drawString(100, 750, "Hello PDF World!")  # Add text to the PDF
+    c.drawString(100, 750, "Welcome to Zugferd API!")
     c.showPage()  # Finalize the current page
     c.save()  # Save the PDF data to the buffer
 
@@ -25,3 +25,7 @@ def make_pdf():
 
     # Return the PDF as a response
     return Response(pdf_bytes, media_type="application/pdf")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000)
