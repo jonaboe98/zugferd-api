@@ -11,7 +11,12 @@ import subprocess
 
 app = FastAPI()
 
-# Define invoice data structure
+# ✅ Root Endpoint to Fix 404 Not Found
+@app.get("/")
+def read_root():
+    return {"message": "ZUGFeRD Invoice API is running!"}
+
+# ✅ Define invoice data structure
 class Item(BaseModel):
     description: str
     price: float
@@ -25,7 +30,7 @@ class InvoiceData(BaseModel):
     invoice_number: str
     invoice_date: str
 
-# 1️⃣ Validate VAT Number
+# ✅ 1️⃣ Validate VAT Number
 def validate_vat_number(vat_number: str, country_code: str) -> bool:
     """
     Validates a VAT number using the EU VIES VAT API.
@@ -35,7 +40,7 @@ def validate_vat_number(vat_number: str, country_code: str) -> bool:
     
     return response.status_code == 200 and "valid" in response.text
 
-# 2️⃣ Generate ZUGFeRD XML
+# ✅ 2️⃣ Generate ZUGFeRD XML
 def generate_zugferd_xml(invoice: InvoiceData) -> str:
     root = ET.Element("Invoice")
     ET.SubElement(root, "InvoiceNumber").text = invoice.invoice_number
@@ -51,14 +56,14 @@ def generate_zugferd_xml(invoice: InvoiceData) -> str:
     ET.SubElement(root, "TotalAmount").text = str(invoice.total_amount)
     return ET.tostring(root, pretty_print=True, encoding="utf-8").decode()
 
-# 3️⃣ Validate XML with Official ZUGFeRD Schema
+# ✅ 3️⃣ Validate XML with Official ZUGFeRD Schema
 def validate_zugferd_xml(xml_string: str) -> bool:
-    SCHEMA_FILE = "zugferd_2p1.xsd"  # Download this file from official site
+    SCHEMA_FILE = "zugferd_2p1.xsd"  # Download this file from the official ZUGFeRD site
     schema = ET.XMLSchema(ET.parse(SCHEMA_FILE))
     xml_doc = ET.fromstring(xml_string.encode("utf-8"))
     return schema.validate(xml_doc)
 
-# 4️⃣ Generate PDF with Embedded XML
+# ✅ 4️⃣ Generate PDF with Embedded XML
 def generate_pdf_with_zugferd(invoice: InvoiceData) -> bytes:
     pdf_buffer = BytesIO()
     c = canvas.Canvas(pdf_buffer, pagesize=A4)
@@ -90,14 +95,14 @@ def generate_pdf_with_zugferd(invoice: InvoiceData) -> bytes:
 
     return final_pdf.getvalue()
 
-# 5️⃣ Validate PDF/A-3 with VeraPDF
+# ✅ 5️⃣ Validate PDF/A-3 with VeraPDF
 def validate_pdfa3(pdf_bytes: bytes) -> bool:
     with open("temp_invoice.pdf", "wb") as f:
         f.write(pdf_bytes)
     result = subprocess.run(["verapdf", "temp_invoice.pdf"], capture_output=True, text=True)
     return "Passed" in result.stdout
 
-# 6️⃣ API Endpoint for Compliance Checking & Invoice Generation
+# ✅ 6️⃣ API Endpoint for Compliance Checking & Invoice Generation
 @app.post("/generate-validated-invoice")
 def generate_validated_invoice(data: InvoiceData):
     # VAT Validation
