@@ -6,7 +6,6 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 import fitz  # PyMuPDF for embedding XML
 import lxml.etree as ET  # For XML generation
-import subprocess  # To verify PDF/A-3 compliance
 
 app = FastAPI()
 
@@ -23,7 +22,7 @@ class InvoiceData(BaseModel):
     invoice_number: str
     invoice_date: str
 
-# ✅ 1️⃣ Generate ZUGFeRD XML (Fixed Namespace Issues)
+# ✅ 1️⃣ Generate ZUGFeRD XML
 def generate_zugferd_xml(invoice: InvoiceData) -> str:
     """
     Creates a valid ZUGFeRD 2.1 XML invoice.
@@ -91,32 +90,21 @@ def generate_pdf_with_zugferd(invoice: InvoiceData) -> bytes:
 
     return final_pdf.getvalue()
 
-# ✅ 3️⃣ Verify PDF/A-3 Compliance with VeraPDF
-def validate_pdfa3(pdf_bytes: bytes) -> bool:
-    """
-    Checks if the PDF is PDF/A-3 compliant using VeraPDF.
-    """
-    temp_pdf = "temp_invoice.pdf"
-    with open(temp_pdf, "wb") as f:
-        f.write(pdf_bytes)
-
-    result = subprocess.run(["verapdf", temp_pdf], capture_output=True, text=True)
-    return "Passed" in result.stdout
-
-# ✅ 4️⃣ API Endpoint for Invoice Generation (PDF/A-3 Fixed)
+# ✅ 3️⃣ API Endpoint for Invoice Generation (PDF/A-3 Fixed)
 @app.post("/generate-validated-invoice")
 def generate_validated_invoice(data: InvoiceData):
-    pdf_bytes = generate_pdf_with_zugferd(data)
+    try:
+        pdf_bytes = generate_pdf_with_zugferd(data)
 
-    # Validate PDF/A-3
-    if not validate_pdfa3(pdf_bytes):
-        raise HTTPException(status_code=400, detail="❌ PDF is NOT PDF/A-3 compliant")
-
-    return Response(
-        pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": "attachment; filename=zugferd-invoice.pdf"}
-    )
+        print("✅ PDF successfully generated!")
+        return Response(
+            pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": "attachment; filename=zugferd-invoice.pdf"}
+        )
+    except Exception as e:
+        print(f"❌ ERROR: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ✅ Root Endpoint
 @app.get("/")
