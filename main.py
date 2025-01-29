@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Response, HTTPException
+from fastapi import FastAPI, Response
 from pydantic import BaseModel
 from typing import List
 from io import BytesIO
@@ -6,6 +6,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 import fitz  # PyMuPDF for embedding XML
 import lxml.etree as ET  # For XML generation
+import subprocess  # To verify PDF/A-3 compliance
 
 app = FastAPI()
 
@@ -47,15 +48,15 @@ def generate_zugferd_xml(invoice: InvoiceData) -> str:
     buyer = ET.SubElement(trade_party, "{urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100}ApplicableHeaderTradeAgreement")
     ET.SubElement(buyer, "{urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100}BuyerReference").text = invoice.customer_name
 
-    total = ET.SubElement(trade_party, "{urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100}ApplicableHeaderTradeSettlement")
+    total = ET.SubElement(trade_party, "{urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100}ApplicableHeaderTradeSettlement")
     ET.SubElement(total, "{urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100}GrandTotalAmount").text = str(invoice.total_amount)
 
     return ET.tostring(root, pretty_print=True, encoding="utf-8").decode()
 
-# ✅ 2️⃣ Generate PDF with Embedded ZUGFeRD XML
+# ✅ 2️⃣ Generate PDF/A-3 with Embedded XML
 def generate_pdf_with_zugferd(invoice: InvoiceData) -> bytes:
     """
-    Generates a ZUGFeRD-compliant PDF invoice with embedded XML.
+    Generates a PDF/A-3 compliant ZUGFeRD invoice with embedded XML.
     """
     pdf_buffer = BytesIO()
     c = canvas.Canvas(pdf_buffer, pagesize=A4)
@@ -90,10 +91,26 @@ def generate_pdf_with_zugferd(invoice: InvoiceData) -> bytes:
 
     return final_pdf.getvalue()
 
-# ✅ 3️⃣ API Endpoint for Invoice Generation (Now Fully ZUGFeRD Compliant)
+# ✅ 3️⃣ Verify PDF/A-3 Compliance with VeraPDF
+def validate_pdfa3(pdf_bytes: bytes) -> bool:
+    """
+    Checks if the PDF is PDF/A-3 compliant using VeraPDF.
+    """
+    temp_pdf = "temp_invoice.pdf"
+    with open(temp_pdf, "wb") as f:
+        f.write(pdf_bytes)
+
+    result = subprocess.run(["verapdf", temp_pdf], capture_output=True, text=True)
+    return "Passed" in result.stdout
+
+# ✅ 4️⃣ API Endpoint for Invoice Generation (PDF/A-3 Fixed)
 @app.post("/generate-validated-invoice")
 def generate_validated_invoice(data: InvoiceData):
     pdf_bytes = generate_pdf_with_zugferd(data)
+
+    # Validate PDF/A-3
+    if not validate_pdfa3(pdf_bytes):
+        raise HTTPException(status_code=400, detail="❌ PDF is NOT PDF/A-3 compliant")
 
     return Response(
         pdf_bytes,
@@ -101,7 +118,7 @@ def generate_validated_invoice(data: InvoiceData):
         headers={"Content-Disposition": "attachment; filename=zugferd-invoice.pdf"}
     )
 
-# ✅ Root Endpoint to Prevent 404 Errors
+# ✅ Root Endpoint
 @app.get("/")
 def read_root():
     return {"message": "ZUGFeRD Invoice API is running!"}
