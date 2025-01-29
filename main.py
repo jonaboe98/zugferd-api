@@ -60,7 +60,7 @@ def generate_pdf_with_zugferd(invoice: InvoiceData) -> bytes:
     pdf_buffer = BytesIO()
     c = canvas.Canvas(pdf_buffer, pagesize=A4)
 
-    # ✅ ADD PDF/A-3 METADATA
+    # ✅ ADD BASIC METADATA
     c.setTitle("ZUGFeRD Invoice")
     c.setAuthor("Your Company")
     c.setSubject("ZUGFeRD 2.1 Invoice")
@@ -88,16 +88,25 @@ def generate_pdf_with_zugferd(invoice: InvoiceData) -> bytes:
     pdf = fitz.open("pdf", pdf_buffer.getvalue())
     xml_data = generate_zugferd_xml(invoice)
 
-    # ✅ Embed XML with Correct Metadata
+    # ✅ Embed XML File
     pdf.embfile_add("ZUGFeRD-invoice.xml", xml_data.encode(), desc="ZUGFeRD XML")
 
-    # ✅ Force PDF/A-3 Compliance in Metadata
-    metadata = pdf.metadata
-    metadata["format"] = "application/pdf"
-    metadata["pdfaid:part"] = "3"  # Force PDF/A-3
-    metadata["pdfaid:conformance"] = "B"  # Compliance Level B
-    metadata["GTS_PDFXVersion"] = "PDF/A-3"
-    pdf.set_metadata(metadata)
+    # ✅ Force PDF/A-3 Compliance with XMP Metadata
+    xmp_metadata = """<?xpacket begin='' id='W5M0MpCehiHzreSzNTczkc9d'?>
+    <x:xmpmeta xmlns:x='adobe:ns:meta/' x:xmptk='Adobe XMP Core 5.6-c125 79.164274, 2022/07/18-18:10:59'>
+      <rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>
+        <rdf:Description rdf:about=''
+          xmlns:pdfaid='http://www.aiim.org/pdfa/ns/id/'
+          xmlns:xmp='http://ns.adobe.com/xap/1.0/'>
+          <pdfaid:part>3</pdfaid:part>
+          <pdfaid:conformance>B</pdfaid:conformance>
+          <xmp:CreatorTool>FastAPI PDF Generator</xmp:CreatorTool>
+        </rdf:Description>
+      </rdf:RDF>
+    </x:xmpmeta>
+    <?xpacket end='w'?>"""
+
+    pdf.set_metadata(fitz.DocumentMetadata(xmp_metadata))
 
     final_pdf = BytesIO()
     pdf.save(final_pdf)
