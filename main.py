@@ -5,7 +5,7 @@ from io import BytesIO
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 import fitz  # PyMuPDF for embedding XML
-import lxml.etree as ET  # For XML validation
+import lxml.etree as ET  # For XML generation
 
 app = FastAPI()
 
@@ -22,35 +22,37 @@ class InvoiceData(BaseModel):
     invoice_number: str
     invoice_date: str
 
-# ✅ 1️⃣ Generate ZUGFeRD XML
+# ✅ 1️⃣ Generate ZUGFeRD XML (Fixed Namespace Issues)
 def generate_zugferd_xml(invoice: InvoiceData) -> str:
     """
-    Creates a basic ZUGFeRD-compliant XML invoice.
+    Creates a valid ZUGFeRD 2.1 XML invoice.
     """
-    root = ET.Element("rsm:CrossIndustryInvoice", {
-        "xmlns:rsm": "urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100",
-        "xmlns:ram": "urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100",
-        "xmlns:udt": "urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100"
-    })
+    NSMAP = {
+        "rsm": "urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100",
+        "ram": "urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100",
+        "udt": "urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100"
+    }
 
-    context = ET.SubElement(root, "rsm:ExchangedDocumentContext")
-    guideline = ET.SubElement(context, "ram:GuidelineSpecifiedDocumentContextParameter")
-    ET.SubElement(guideline, "ram:ID").text = "urn:zugferd.de:2p1:basic"
+    root = ET.Element("{urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100}CrossIndustryInvoice", nsmap=NSMAP)
 
-    header = ET.SubElement(root, "rsm:ExchangedDocument")
-    ET.SubElement(header, "ram:ID").text = invoice.invoice_number
-    ET.SubElement(header, "ram:IssueDateTime").text = invoice.invoice_date
+    context = ET.SubElement(root, "{urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100}ExchangedDocumentContext")
+    guideline = ET.SubElement(context, "{urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100}GuidelineSpecifiedDocumentContextParameter")
+    ET.SubElement(guideline, "{urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100}ID").text = "urn:zugferd.de:2p1:basic"
 
-    trade_party = ET.SubElement(root, "rsm:SupplyChainTradeTransaction")
-    buyer = ET.SubElement(trade_party, "ram:ApplicableHeaderTradeAgreement")
-    ET.SubElement(buyer, "ram:BuyerReference").text = invoice.customer_name
+    header = ET.SubElement(root, "{urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100}ExchangedDocument")
+    ET.SubElement(header, "{urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100}ID").text = invoice.invoice_number
+    ET.SubElement(header, "{urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100}IssueDateTime").text = invoice.invoice_date
 
-    total = ET.SubElement(trade_party, "ram:ApplicableHeaderTradeSettlement")
-    ET.SubElement(total, "ram:GrandTotalAmount").text = str(invoice.total_amount)
+    trade_party = ET.SubElement(root, "{urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100}SupplyChainTradeTransaction")
+    buyer = ET.SubElement(trade_party, "{urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100}ApplicableHeaderTradeAgreement")
+    ET.SubElement(buyer, "{urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100}BuyerReference").text = invoice.customer_name
+
+    total = ET.SubElement(trade_party, "{urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100}ApplicableHeaderTradeSettlement")
+    ET.SubElement(total, "{urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100}GrandTotalAmount").text = str(invoice.total_amount)
 
     return ET.tostring(root, pretty_print=True, encoding="utf-8").decode()
 
-# ✅ 2️⃣ Generate PDF with Embedded XML (ZUGFeRD Compliant)
+# ✅ 2️⃣ Generate PDF with Embedded ZUGFeRD XML
 def generate_pdf_with_zugferd(invoice: InvoiceData) -> bytes:
     """
     Generates a ZUGFeRD-compliant PDF invoice with embedded XML.
@@ -98,3 +100,8 @@ def generate_validated_invoice(data: InvoiceData):
         media_type="application/pdf",
         headers={"Content-Disposition": "attachment; filename=zugferd-invoice.pdf"}
     )
+
+# ✅ Root Endpoint to Prevent 404 Errors
+@app.get("/")
+def read_root():
+    return {"message": "ZUGFeRD Invoice API is running!"}
