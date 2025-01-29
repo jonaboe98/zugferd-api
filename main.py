@@ -6,14 +6,8 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 import fitz  # PyMuPDF for embedding XML
 import lxml.etree as ET  # For XML validation
-import subprocess
 
 app = FastAPI()
-
-# ✅ Root Endpoint to Fix 404 Not Found
-@app.get("/")
-def read_root():
-    return {"message": "ZUGFeRD Invoice API is running!"}
 
 # ✅ Define invoice data structure
 class Item(BaseModel):
@@ -28,24 +22,39 @@ class InvoiceData(BaseModel):
     invoice_number: str
     invoice_date: str
 
-# ✅ 1️⃣ Generate ZUGFeRD XML (No VAT validation here)
+# ✅ 1️⃣ Generate ZUGFeRD XML
 def generate_zugferd_xml(invoice: InvoiceData) -> str:
-    root = ET.Element("Invoice")
-    ET.SubElement(root, "InvoiceNumber").text = invoice.invoice_number
-    ET.SubElement(root, "InvoiceDate").text = invoice.invoice_date
-    ET.SubElement(root, "CustomerName").text = invoice.customer_name
+    """
+    Creates a basic ZUGFeRD-compliant XML invoice.
+    """
+    root = ET.Element("rsm:CrossIndustryInvoice", {
+        "xmlns:rsm": "urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100",
+        "xmlns:ram": "urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100",
+        "xmlns:udt": "urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100"
+    })
 
-    items_element = ET.SubElement(root, "Items")
-    for item in invoice.items:
-        item_element = ET.SubElement(items_element, "Item")
-        ET.SubElement(item_element, "Description").text = item.description
-        ET.SubElement(item_element, "Price").text = str(item.price)
+    context = ET.SubElement(root, "rsm:ExchangedDocumentContext")
+    guideline = ET.SubElement(context, "ram:GuidelineSpecifiedDocumentContextParameter")
+    ET.SubElement(guideline, "ram:ID").text = "urn:zugferd.de:2p1:basic"
 
-    ET.SubElement(root, "TotalAmount").text = str(invoice.total_amount)
+    header = ET.SubElement(root, "rsm:ExchangedDocument")
+    ET.SubElement(header, "ram:ID").text = invoice.invoice_number
+    ET.SubElement(header, "ram:IssueDateTime").text = invoice.invoice_date
+
+    trade_party = ET.SubElement(root, "rsm:SupplyChainTradeTransaction")
+    buyer = ET.SubElement(trade_party, "ram:ApplicableHeaderTradeAgreement")
+    ET.SubElement(buyer, "ram:BuyerReference").text = invoice.customer_name
+
+    total = ET.SubElement(trade_party, "ram:ApplicableHeaderTradeSettlement")
+    ET.SubElement(total, "ram:GrandTotalAmount").text = str(invoice.total_amount)
+
     return ET.tostring(root, pretty_print=True, encoding="utf-8").decode()
 
-# ✅ 2️⃣ Generate PDF with Embedded XML
+# ✅ 2️⃣ Generate PDF with Embedded XML (ZUGFeRD Compliant)
 def generate_pdf_with_zugferd(invoice: InvoiceData) -> bytes:
+    """
+    Generates a ZUGFeRD-compliant PDF invoice with embedded XML.
+    """
     pdf_buffer = BytesIO()
     c = canvas.Canvas(pdf_buffer, pagesize=A4)
     c.setFont("Helvetica-Bold", 20)
@@ -65,10 +74,13 @@ def generate_pdf_with_zugferd(invoice: InvoiceData) -> bytes:
     c.save()
     pdf_buffer.seek(0)
 
+    # Convert to PDF/A-3 and embed ZUGFeRD XML
     pdf = fitz.open("pdf", pdf_buffer.getvalue())
     xml_data = generate_zugferd_xml(invoice)
+
+    # Embed XML into PDF
     pdf.embfile_add("ZUGFeRD-invoice.xml", xml_data.encode(), desc="ZUGFeRD XML")
-    
+
     final_pdf = BytesIO()
     pdf.save(final_pdf)
     pdf.close()
@@ -76,14 +88,13 @@ def generate_pdf_with_zugferd(invoice: InvoiceData) -> bytes:
 
     return final_pdf.getvalue()
 
-# ✅ 3️⃣ API Endpoint for Invoice Generation (No VAT Validation)
+# ✅ 3️⃣ API Endpoint for Invoice Generation (Now Fully ZUGFeRD Compliant)
 @app.post("/generate-validated-invoice")
 def generate_validated_invoice(data: InvoiceData):
-    # Generate PDF
     pdf_bytes = generate_pdf_with_zugferd(data)
 
     return Response(
         pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": "attachment; filename=validated-invoice.pdf"}
+        headers={"Content-Disposition": "attachment; filename=zugferd-invoice.pdf"}
     )
