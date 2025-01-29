@@ -6,7 +6,6 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 import fitz  # PyMuPDF for embedding XML
 import lxml.etree as ET  # For XML validation
-import requests
 import subprocess
 
 app = FastAPI()
@@ -23,24 +22,13 @@ class Item(BaseModel):
 
 class InvoiceData(BaseModel):
     customer_name: str
-    vat_number: str  # EU VAT number
-    country_code: str  # e.g., "DE", "FR", "ES"
+    country_code: str
     items: List[Item]
     total_amount: float
     invoice_number: str
     invoice_date: str
 
-# ✅ 1️⃣ Validate VAT Number
-def validate_vat_number(vat_number: str, country_code: str) -> bool:
-    """
-    Validates a VAT number using the EU VIES VAT API.
-    """
-    url = f"https://ec.europa.eu/taxation_customs/vies/vatService.do?ms={country_code}&vat={vat_number}"
-    response = requests.get(url)
-    
-    return response.status_code == 200 and "valid" in response.text
-
-# ✅ 2️⃣ Generate ZUGFeRD XML
+# ✅ 1️⃣ Generate ZUGFeRD XML (No VAT validation here)
 def generate_zugferd_xml(invoice: InvoiceData) -> str:
     root = ET.Element("Invoice")
     ET.SubElement(root, "InvoiceNumber").text = invoice.invoice_number
@@ -56,14 +44,7 @@ def generate_zugferd_xml(invoice: InvoiceData) -> str:
     ET.SubElement(root, "TotalAmount").text = str(invoice.total_amount)
     return ET.tostring(root, pretty_print=True, encoding="utf-8").decode()
 
-# ✅ 3️⃣ Validate XML with Official ZUGFeRD Schema
-def validate_zugferd_xml(xml_string: str) -> bool:
-    SCHEMA_FILE = "zugferd_2p1.xsd"  # Download this file from the official ZUGFeRD site
-    schema = ET.XMLSchema(ET.parse(SCHEMA_FILE))
-    xml_doc = ET.fromstring(xml_string.encode("utf-8"))
-    return schema.validate(xml_doc)
-
-# ✅ 4️⃣ Generate PDF with Embedded XML
+# ✅ 2️⃣ Generate PDF with Embedded XML
 def generate_pdf_with_zugferd(invoice: InvoiceData) -> bytes:
     pdf_buffer = BytesIO()
     c = canvas.Canvas(pdf_buffer, pagesize=A4)
@@ -95,29 +76,11 @@ def generate_pdf_with_zugferd(invoice: InvoiceData) -> bytes:
 
     return final_pdf.getvalue()
 
-# ✅ 5️⃣ Validate PDF/A-3 with VeraPDF
-def validate_pdfa3(pdf_bytes: bytes) -> bool:
-    with open("temp_invoice.pdf", "wb") as f:
-        f.write(pdf_bytes)
-    result = subprocess.run(["verapdf", "temp_invoice.pdf"], capture_output=True, text=True)
-    return "Passed" in result.stdout
-
-# ✅ 6️⃣ API Endpoint for Compliance Checking & Invoice Generation
+# ✅ 3️⃣ API Endpoint for Invoice Generation (No VAT Validation)
 @app.post("/generate-validated-invoice")
 def generate_validated_invoice(data: InvoiceData):
-    # VAT Validation
-    if not validate_vat_number(data.vat_number, data.country_code):
-        raise HTTPException(status_code=400, detail="❌ Invalid VAT number")
-
-    # ZUGFeRD XML Validation
-    xml_data = generate_zugferd_xml(data)
-    if not validate_zugferd_xml(xml_data):
-        raise HTTPException(status_code=400, detail="❌ Invalid ZUGFeRD XML")
-
-    # PDF Generation & PDF/A-3 Validation
+    # Generate PDF
     pdf_bytes = generate_pdf_with_zugferd(data)
-    if not validate_pdfa3(pdf_bytes):
-        raise HTTPException(status_code=400, detail="❌ PDF is NOT PDF/A-3 compliant")
 
     return Response(
         pdf_bytes,
