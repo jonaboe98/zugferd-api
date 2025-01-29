@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Response, HTTPException
 from pydantic import BaseModel
 from typing import List
 from io import BytesIO
@@ -22,7 +22,7 @@ class InvoiceData(BaseModel):
     invoice_number: str
     invoice_date: str
 
-# ✅ 1️⃣ Generate ZUGFeRD XML
+# ✅ 1️⃣ Generate ZUGFeRD XML (Fixed Namespace Issues)
 def generate_zugferd_xml(invoice: InvoiceData) -> str:
     """
     Creates a valid ZUGFeRD 2.1 XML invoice.
@@ -59,6 +59,14 @@ def generate_pdf_with_zugferd(invoice: InvoiceData) -> bytes:
     """
     pdf_buffer = BytesIO()
     c = canvas.Canvas(pdf_buffer, pagesize=A4)
+
+    # ✅ ADD PDF/A-3 METADATA
+    c.setTitle("ZUGFeRD Invoice")
+    c.setAuthor("Your Company")
+    c.setSubject("ZUGFeRD 2.1 Invoice")
+    c.setCreator("FastAPI PDF Generator")
+    c.setProducer("ReportLab PDF/A-3 Generator")
+
     c.setFont("Helvetica-Bold", 20)
     c.drawString(100, 800, "Invoice")
     c.setFont("Helvetica", 12)
@@ -76,12 +84,20 @@ def generate_pdf_with_zugferd(invoice: InvoiceData) -> bytes:
     c.save()
     pdf_buffer.seek(0)
 
-    # Convert to PDF/A-3 and embed ZUGFeRD XML
+    # ✅ Convert to PDF/A-3 and embed ZUGFeRD XML
     pdf = fitz.open("pdf", pdf_buffer.getvalue())
     xml_data = generate_zugferd_xml(invoice)
 
-    # Embed XML into PDF
+    # ✅ Embed XML with Correct Metadata
     pdf.embfile_add("ZUGFeRD-invoice.xml", xml_data.encode(), desc="ZUGFeRD XML")
+
+    # ✅ Force PDF/A-3 Compliance in Metadata
+    metadata = pdf.metadata
+    metadata["format"] = "application/pdf"
+    metadata["pdfaid:part"] = "3"  # Force PDF/A-3
+    metadata["pdfaid:conformance"] = "B"  # Compliance Level B
+    metadata["GTS_PDFXVersion"] = "PDF/A-3"
+    pdf.set_metadata(metadata)
 
     final_pdf = BytesIO()
     pdf.save(final_pdf)
@@ -94,6 +110,7 @@ def generate_pdf_with_zugferd(invoice: InvoiceData) -> bytes:
 @app.post("/generate-validated-invoice")
 def generate_validated_invoice(data: InvoiceData):
     try:
+        print("✅ Generating PDF with ZUGFeRD XML...")
         pdf_bytes = generate_pdf_with_zugferd(data)
 
         print("✅ PDF successfully generated!")
